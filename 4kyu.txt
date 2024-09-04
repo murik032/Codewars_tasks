@@ -1,0 +1,294 @@
+https://www.codewars.com/kata/58d460e4091c1126a000004c
+
+with temp1 as (
+  select distinct
+    c.customerid,
+    'You''ve spent enough money with us so we care about your business. Unfortunately you have selected a bad address. Please login to our site and select a good address.' as script
+  from customers c join addresses a on c.customerid = a.customerid 
+    join sales s on s.customerid = c.customerid
+  where a.addressid  != s.addressid 
+  union
+  select distinct
+    c.customerid,
+    'You''ve spent enough money with us so we care about your business. You don''t have an address on file yet you''ve selected an address. Please login to our site and add an address so we may use it... Don''t ask any questions on how this happened.' as script
+  from customers c join sales s on c.customerid = s.customerid
+  where c.customerid not in (select distinct customerid from addresses)
+),
+temp2 as (
+  select 
+    t.customerid,
+    t.script, 
+    sum(price) as total
+  from temp1 t join sales s on t.customerid = s.customerid 
+  group by t.customerid, t.script
+  having sum(price) >= 199
+),
+res as (
+  select distinct
+    t.customerid,
+    c.email,
+    total as total_bought,
+    script,
+    row_number() over(order by total desc, c.email) % 3 as repid
+  from temp2 t join customers c on t.customerid = c.customerid
+  order by customerid desc
+),
+temp3 as (
+  select 
+    trim(firstname||' '||coalesce(lastname, '')) as firstname,
+    row_number() over (order by hiredate) % 3 as repid
+  from salesreps
+)
+select 
+  r.email, 
+  r.total_bought, 
+  t.firstname as rep_name,
+  r.script
+from res r join temp3 t on r.repid = t.repid
+order by total_bought desc, email
+
+https://www.codewars.com/kata/660f1b81b673a817e271d508
+
+with all_kata_languages as (
+    select 
+      k.kata_id, 
+      t.language_id
+    from katas k join translations t on k.kata_id = t.kata_id
+),
+user_possible_lang as (
+  select 
+    j.user_id,
+    t.language_id 
+  from journals j join translations t on j.translation_id  = t.translation_id
+  union 
+  select 
+    u.user_id,
+    l.language_id
+  from users u join user_languages ul on u.user_id = ul.user_id 
+    join languages l on ul.language_id = l.language_id
+),
+user_possible_kata_language as (
+  select 
+    user_id,
+    ul.language_id,
+    akl.kata_id
+  from user_possible_lang ul join all_kata_languages akl on ul.language_id = akl.language_id
+),
+all_actions as (
+  select
+    j.user_id,
+    t.language_id,
+    t.kata_id,
+    j.action,
+    s.result
+  from translations t  join journals j on t.translation_id = j.translation_id 
+   full join submissions s on s.journal_id  = j.journal_id 
+),
+result as (
+  select 
+    upkl.user_id,
+    upkl.language_id,
+    upkl.kata_id,
+    aa.action,
+    aa.result
+  from user_possible_kata_language upkl left join all_actions aa 
+    on upkl.user_id = aa.user_id and
+      upkl.language_id = aa.language_id and
+      upkl.kata_id = aa.kata_id
+),
+res_table as (
+  select 
+    user_id, 
+    language_id,
+    kata_id,
+    case when "action" is null then kata_id
+    else null 
+    end as not_trained,
+    case when "action" = 'TRAIN' then kata_id
+    else null
+    end as trained,
+    case when "action" = 'SUBMIT' then kata_id
+    else null
+    end as submitted,
+    case when "action" = 'SUBMIT' and "result" = 'FAILED' then kata_id
+    else null 
+    end as failed,
+    case when "action" = 'SUBMIT' and "result" = 'COMPLETED' then kata_id
+    else null 
+    end as completed
+  from result
+)
+select
+  u.name as user,
+  l.name as language,
+  count(distinct kata_id) as total,
+  count(distinct not_trained) as not_trained,
+  count(distinct trained) - count(distinct submitted) as not_submitted ,
+  count(distinct submitted) - count(distinct completed) as not_completed,
+  count(distinct completed) as completed 
+from res_table r join users u on u.user_id = r.user_id join languages l on l.language_id = r.language_id
+group by u."name", l."name"
+order by u.name, l.name
+
+https://www.codewars.com/kata/64466fb8b8642100159e0574
+
+create or replace function flag_(num int) returns boolean as $$
+declare 
+  i bigint;
+begin
+  if num <= 1 then
+    return false;
+  elseif num = 2 then
+    return true;
+  elseif num % 2 = 0 then
+    return false;
+  end if;
+  for i in 3..floor(sqrt(num))::int by 2
+  loop
+    if num % i = 0 then
+      return false;
+    end if;
+  end loop;
+  return true;
+end;
+$$ language plpgsql;
+
+with stop_list as (
+  select distinct rental_id from rental 
+  where rental_id not in (select distinct rental_id from payment)
+),
+temp_rent as (
+  select distinct * from rental where rental_id not in (select * from stop_list)
+), 
+temp1 as (
+  select distinct
+    c.customer_id,
+    c.last_name,
+    c.first_name||' '||c.last_name as customer_name,
+    r.rental_id as rental_id,
+    p.amount as amount
+  from customer c join temp_rent r on c.customer_id = r.customer_id
+    join payment p on p.rental_id = r.rental_id
+),
+temp2 as (
+  select distinct
+    customer_id,
+    (select sum(cast(digit as integer)) from unnest(string_to_array(customer_id::text, null)) as digit) 
+      as id_sum
+  from customer
+),
+temp3 as (
+  select distinct
+    i.customer_id,
+    i.id_sum,
+    j.last_name,
+    j.customer_name,
+    count( distinct coalesce(j.rental_id, 0)) as all_rentals,
+    round(sum(j.amount), 2) as total_payments 
+  from temp2 i join temp1 j on i.customer_id = j.customer_id
+  group by i.customer_id, i.id_sum, j.last_name, j.customer_name
+)
+select  customer_id, customer_name, all_rentals, cast(total_payments as numeric)
+from temp3 
+where flag_(cast(all_rentals as int)) = true and id_sum % 2 = 0
+order by total_payments desc, all_rentals desc, last_name
+
+https://www.codewars.com/kata/609a6ab739660a0056fb4a29
+
+create or replace function total()
+returns bigint as $$
+declare col_data record;
+  count_ bigint :=0;
+  script text;
+  temp_count bigint :=0;
+begin
+  for col_data in (
+    select distinct c.table_schema, c.table_name, c.column_name
+    from information_schema.columns c
+    join pg_class cls ON c.table_name = cls.relname
+    join pg_namespace ns ON cls.relnamespace = ns.oid
+    where c.table_schema not in ('pg_catalog', 'information_schema') and c.data_type = 'integer' and cls.relkind = 'r' and ns.nspname = c.table_schema
+    )
+  loop
+      select 'select coalesce(sum( '||quote_ident(col_data.column_name)||'), 0) from '||quote_ident(col_data.table_schema)||'.'||quote_ident(col_data.table_name)||';'
+      into script;
+      execute script into temp_count;
+      count_:= count_ + coalesce(temp_count, 0);
+      temp_count := 0;
+  end loop;
+return coalesce(count_, 0);
+end;
+$$ language plpgsql;
+select total()  
+
+https://www.codewars.com/kata/657d994ffbfb3ac8fdb093d6
+
+with temp1 as (
+  select *, extract(hour from called_time) as hour_
+  from calls where date(called_time) = '2023-12-14'
+    and extract(hour from called_time) between 9 and 18
+),
+hour_temp as (
+  select generate_series(9, 18) as hour
+),
+temp11 as (
+  select h.hour as hour_, t.id, t.username, t.called_time from hour_temp h left join temp1 t on h.hour = t.hour_
+),
+temp2 as (
+  select 
+    case when hour_ between 9 and 11 then hour_||' AM'
+         when hour_ = 12 then '12 PM' 
+         else
+            (hour_-12)||' PM'
+    end as hour,
+    id,
+    hour_,
+    username, 
+    called_time
+  from temp11
+),
+temp3 as (
+  select 
+    hour,
+    hour_,
+    count(id) as user_per_hour,
+    username
+  from temp2
+  group by hour, hour_, username
+),
+temp4 as (
+  select
+    hour,
+    hour_,
+    cast(sum(user_per_hour) as int) as call_count,
+    max(user_per_hour) as max_calls_by_single_user
+  from temp3
+  group by hour, hour_
+),
+peak as (
+  select hour_ from temp4 order by call_count desc, hour_ asc limit 1
+),
+semi as (
+  select hour_ from temp4 where hour_ not in (select * from peak) order by call_count desc, hour_ asc limit 3
+), 
+res as (
+  select 
+    hour, 
+    call_count, 
+    max_calls_by_single_user,
+    case 
+      when hour_ in (select * from peak) then 'Peak Hour'
+      when hour_ in (select * from semi) then 'Off-Peak Hour'
+      else 'Quiet Hour'
+    end as call_volume_category
+  from temp4
+)
+select * from res
+order by 
+  case call_volume_category
+    when 'Peak Hour' then 1
+    when 'Off-Peak Hour' then 2
+    when 'Quiet Hour' then 3
+    else 5
+  end,
+  call_count desc

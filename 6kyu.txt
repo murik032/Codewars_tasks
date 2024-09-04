@@ -1,0 +1,115 @@
+https://www.codewars.com/kata/6613c03d77e972004677ecd4
+
+with temp1 as (
+  select * from maintenance where extract(year from maintenance_date) = '2024' and extract(month from maintenance_date) = '4'
+),
+temp2 as (
+  select
+    l.id as landlord_id, 
+    l.name,
+    sum(distinct coalesce(p.rent, 0)) as total_rent,
+    sum(distinct coalesce(m.cost, 0)) as total_cost,
+    sum(distinct coalesce(p.rent, 0)) - sum(distinct coalesce(m.cost, 0)) as amount_payable
+  from landlord l 
+    left join property p on l.id = p.landlord_id 
+    left join temp1 m on p.id = m.property_id 
+  group by l.id, l.name
+)
+select * from temp2
+order by total_rent desc, landlord_id desc
+
+https://www.codewars.com/kata/6613d333fe0da4edf9b4accb
+
+with temp1 as (
+  select deals.deal_id, deals.deal_name, '"currency" : "'||tranches.currency||'", "total_amount" : '||sum(tranches.amount) as string
+  from deals
+  join tranches using (deal_id)
+  group by deals.deal_id, tranches.currency
+  order by deals.deal_id desc, tranches.currency
+)
+select
+  deal_id,
+  deal_name,
+  '[{'||string_agg(string, '}, {')||'}]' as currency_details
+from temp1
+group by deal_id, deal_name
+order by deal_id desc
+
+https://www.codewars.com/kata/6614e1e887f83d3ad409571e
+
+with temp1 as (
+  select 
+    employee_id,
+    attendance_date,
+    to_char(attendance_date, 'day') as day_,
+    case
+      when cast(extract(doy from attendance_date) as int) = 1 then 1
+      when cast(extract(doy from attendance_date) as int) % 7 = 0 then cast(extract(doy from attendance_date) as int) / 7 + 1
+      else floor((extract(doy from attendance_date)::int - 1) / 7) + 1
+    end as week
+  from employee_attendance 
+  where extract(year from attendance_date) = 2023
+  and trim(lower(to_char(attendance_date, 'day'))) in ('saturday', 'sunday')
+)
+select 
+  employee_id,
+  count(distinct week) as weekends_worked,
+  count(day_) as total_weekend_days_worked
+from temp1 
+group by employee_id
+order by weekends_worked desc, total_weekend_days_worked desc, employee_id desc
+
+https://www.codewars.com/kata/667d1db038cc5c1262d78dcd
+
+with temp1 as (
+  select 
+    c.call_id, 
+    extract(hour from c.timestamp) as call_hour,
+    c.status,
+    unnest(string_to_array(content, ' ')) as word
+  from transcriptions t join calls c on t.call_id = c.call_id
+  where c.status = 'transferred_to_rep'
+),
+temp2 as (
+  select 
+   *
+  from temp1 
+  where word like '%F-word%'
+),
+temp3 as (
+  select
+    call_hour,
+    call_id,
+    count(word)
+  from temp2
+  group by call_id, call_hour
+  having count(word) >= 3
+)
+select 
+  call_hour, 
+  count(call_id) as angry_call_count
+from temp3 
+group by call_hour
+order by count(call_id) desc, call_hour
+
+https://www.codewars.com/kata/667b1516a9b024779627367a
+
+with temp1 as (
+  select 
+    type,
+    case 
+      when (lead(type) over (order by datetime) = 'black bmw' and traffic_light_id = lead(traffic_light_id ) over (order by datetime)) and 
+      (lag(type) over (order by datetime) = 'black bmw' and traffic_light_id = lag(traffic_light_id ) over (order by datetime)) then 2
+      when (lead(type) over (order by datetime) = 'black bmw' and traffic_light_id = lead(traffic_light_id ) over (order by datetime)) or 
+      (lag(type)  over (order by datetime) = 'black bmw' and traffic_light_id = lag(traffic_light_id ) over (order by datetime)) then 1
+      else 0
+    end as count_
+  from traffic_observations
+  where traffic_light_id = 1
+)
+select
+  type as type_neighbour,
+  sum(count_) as "count" 
+from temp1 
+group by type
+having sum(count_) > 0

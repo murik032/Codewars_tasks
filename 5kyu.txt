@@ -1,0 +1,97 @@
+https://www.codewars.com/kata/661537f087f83d460a095961
+
+with temp1 as (
+  select 
+    *,
+    case 
+      when trade_date in (select min(trade_date) from stocks) then 'grow'
+      when price <= lag(price) over (order by trade_date) then 'drop'
+      else 'grow'
+    end as st
+  from stocks 
+  where extract(year from trade_date) = 2023
+),
+temp2 as (
+  select *,
+    case 
+        when trade_date in (select min(trade_date) from stocks) then 1
+        when price <= lag(price) over (order by trade_date) then 0
+        else rank() over(partition by st order by trade_date)
+      end as temp_
+  from temp1
+  order by trade_date
+),
+temp3 as (
+  select 
+    trade_date, 
+    id - temp_ as idid,
+    price
+  from temp2
+  where st = 'grow' and temp_ != 0
+)
+select 
+  count(trade_date) as trading_days_length,
+  min(trade_date) as start_date,
+  max(trade_date) as end_date,
+  min(price) as start_price,
+  max(price) as end_price
+from temp3
+group by idid
+having count(trade_date) > 1
+order by trading_days_length desc, start_date desc
+
+https://www.codewars.com/kata/64bcfea1aaff1a6962182f3b
+
+with temp1 as (
+  select distinct
+    id,
+    avail_start,
+    max(avail_end) as avail_end
+  from availability
+  where user_id = 777 and avail_start < avail_end
+  group by avail_start, id
+  order by avail_start, avail_end
+),
+temp2 as (
+  select distinct a.id
+  from temp1 a join temp1 b on a.id <> b.id 
+    and a.avail_start > b.avail_start and a.avail_end < b.avail_end
+),
+temp3 as (
+  select avail_start, avail_end from temp1 where id not in (select * from temp2) 
+),
+temp4 as (
+  select distinct
+    case when avail_start between lag(avail_start) over() and lag(avail_end) over() then lag(avail_end) over()
+    else avail_start
+    end as avail_start,
+    avail_end
+  from temp3
+  order by avail_start, avail_end
+)
+select cast(sum(extract(epoch from (avail_end - avail_start)))/60 as int) as total_minutes from temp4
+
+https://www.codewars.com/kata/526989a41034285187000de4
+
+with temp1 as (
+  select
+    id, 
+    string_to_array(first, '.') as first, 
+    string_to_array(last, '.') as last
+  from ip_addresses
+),
+temp2 as (
+  select 
+    id, 
+    (cast(first[1] as bigint) * 256 * 256 * 256 +
+    cast(first[2] as bigint) * 256 * 256 +
+    cast(first[3] as bigint) * 256 +
+    cast(first[4] as bigint)) as first,
+    (cast(last[1] as bigint) * 256 * 256 * 256 +
+    cast(last[2] as bigint) * 256 * 256 +
+    cast(last[3] as bigint) * 256 + 
+    cast(last[4] as bigint)) as last
+  from temp1 
+)
+select id, last - first as ips_between  from temp2
+
